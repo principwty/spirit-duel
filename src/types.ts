@@ -100,6 +100,61 @@ export interface AnimationProfile {
   poses: Record<PoseKey, PoseFrame[]>;
 }
 
+export type PaletteRole = "outline" | "primary" | "secondary" | "accent" | "shadow" | "highlight";
+export type PixelPartAnchor = "root" | "torso" | "head" | "arm" | "weapon";
+export type PixelPartShape = "rect" | "ellipse" | "triangle";
+export type MoveEffectShape = "slashArc" | "pulseRing" | "quakeShards" | "sparkStar" | "burstFlame";
+
+export interface PaletteRamp {
+  outline: number;
+  shadow: number;
+  primary: number;
+  secondary: number;
+  accent: number;
+  highlight: number;
+}
+
+export interface PixelPartConfig {
+  id: string;
+  anchor: PixelPartAnchor;
+  shape: PixelPartShape;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: PaletteRole;
+  alpha?: number;
+  angle?: number;
+  depth?: number;
+}
+
+export interface WeaponArtProfile {
+  shape: "blade" | "staff" | "hammer" | "orb";
+  length: number;
+  width: number;
+  headSize?: number;
+  glowSize: number;
+}
+
+export interface MoveEffectProfile {
+  slash: MoveEffectShape;
+  pulse: MoveEffectShape;
+  quake: MoveEffectShape;
+  spark: MoveEffectShape;
+  burst: MoveEffectShape;
+  projectileCore: PixelPartShape;
+  trailColor: number;
+}
+
+export interface CharacterArtProfile {
+  id: string;
+  silhouette: "balanced" | "robed" | "heavy" | "swift";
+  paletteRamp: PaletteRamp;
+  costumeParts: PixelPartConfig[];
+  weaponProfile: WeaponArtProfile;
+  effectProfile: MoveEffectProfile;
+}
+
 export interface ImpactEffectConfig {
   label: string;
   color: number;
@@ -133,6 +188,7 @@ export interface CharacterConfig {
     height: number;
     weapon: "blade" | "staff" | "hammer" | "orb";
   };
+  art: CharacterArtProfile;
   animation: AnimationProfile;
   maxHealth: number;
   maxEnergy: number;

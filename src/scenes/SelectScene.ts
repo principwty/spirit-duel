@@ -4,6 +4,7 @@ import { getArcadeRun } from "../data/arcade";
 import { characters } from "../data/characters";
 import { stages } from "../data/stages";
 import { defaultTrainingConfig } from "../data/training";
+import { PixelFighterRenderer } from "../render/PixelFighterRenderer";
 import type { AiDifficulty, MatchConfig } from "../types";
 import { createBackdrop } from "./MenuScene";
 
@@ -95,9 +96,9 @@ export class SelectScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const aura = this.add.ellipse(0, -12, 112, 132, character.palette.accent, 0.1);
-    const head = this.add.rectangle(0, -54, character.body.width + 8, 42, character.palette.secondary);
-    const body = this.add.rectangle(0, 18, character.body.width + 36, character.body.height, character.palette.primary);
-    const weapon = this.add.rectangle(76, 2, character.body.weapon === "hammer" ? 30 : 16, 122, character.palette.accent);
+    const portrait = new PixelFighterRenderer(this, character, 0, 52, 1);
+    portrait.container.setScale(1.15);
+    portrait.render("idle", undefined, false, false, true);
     const name = this.add
       .text(0, 78, character.name, {
         fontFamily: "Arial Black, Arial",
@@ -121,7 +122,7 @@ export class SelectScene extends Phaser.Scene {
         wordWrap: { width: 230 },
       })
       .setOrigin(0.5);
-    container.add([panel, aura, tagText, head, body, weapon, name, type, moves]);
+    container.add([panel, aura, tagText, portrait.container, name, type, moves]);
   }
 
   private shiftP1(delta: number): void {

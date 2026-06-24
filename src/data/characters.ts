@@ -1,4 +1,5 @@
 import type { AnimationProfile, CharacterConfig, PoseFrame, PoseKey } from "../types";
+import { getArtProfile } from "./artProfiles";
 import { burstConfig, move } from "./moves";
 
 const basePoses: Record<PoseKey, PoseFrame[]> = {
@@ -75,6 +76,7 @@ export const characters: CharacterConfig[] = [
       shadow: 0x271a20,
     },
     body: { width: 42, height: 92, weapon: "blade" },
+    art: getArtProfile("kai"),
     animation: animationProfile(0x5bd6ff, 0xfff0a6, {
       special: [
         { durationMs: 110, torsoX: -12, torsoAngle: 10, armX: 10, armAngle: 72, weaponX: 18, weaponAngle: 82 },
@@ -113,6 +115,7 @@ export const characters: CharacterConfig[] = [
       shadow: 0x152033,
     },
     body: { width: 38, height: 88, weapon: "staff" },
+    art: getArtProfile("mira"),
     animation: animationProfile(0xffdf5a, 0x88f2d0, {
       idle: [
         { durationMs: 250, headY: -1, armX: 28, armAngle: -18, weaponAngle: -10 },
@@ -162,6 +165,7 @@ export const characters: CharacterConfig[] = [
       shadow: 0x2b201c,
     },
     body: { width: 54, height: 98, weapon: "hammer" },
+    art: getArtProfile("bront"),
     animation: animationProfile(0xff6b35, 0xffb45c, {
       run: [
         { durationMs: 145, torsoX: -2, torsoAngle: -2, headY: 2, armX: 26, armAngle: -20, weaponAngle: -8, crouch: 3 },
@@ -221,6 +225,7 @@ export const characters: CharacterConfig[] = [
       shadow: 0x1b1733,
     },
     body: { width: 36, height: 86, weapon: "orb" },
+    art: getArtProfile("nyx"),
     animation: animationProfile(0x52ffaa, 0xf4ecff, {
       dash: [
         { durationMs: 80, torsoX: 15, torsoAngle: -18, headX: 5, armX: 46, armAngle: -78, weaponX: 74, weaponY: -54, weaponAngle: -40 },
