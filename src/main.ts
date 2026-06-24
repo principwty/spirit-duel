@@ -6,6 +6,7 @@ import { MenuScene } from "./scenes/MenuScene";
 import { PreloadScene } from "./scenes/PreloadScene";
 import { ResultScene } from "./scenes/ResultScene";
 import { SelectScene } from "./scenes/SelectScene";
+import { installCombatDebug } from "./debug/combatDebug";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -25,5 +26,6 @@ const config: Phaser.Types.Core.GameConfig = {
 const game = new Phaser.Game(config);
 
 if (import.meta.env.DEV) {
+  installCombatDebug(game);
   Object.assign(globalThis, { __SPIRIT_DUEL_GAME__: game });
 }

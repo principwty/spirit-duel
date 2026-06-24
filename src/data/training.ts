@@ -9,5 +9,10 @@ export const trainingModes: Array<{ id: TrainingDummyMode; label: string }> = [
 export const defaultTrainingConfig: TrainingConfig = {
   dummyMode: "stand",
   infiniteEnergy: true,
+  infiniteHealth: true,
+  autoReset: true,
+  showHitboxes: false,
+  showFrameData: true,
+  showInputHistory: true,
   showMoveInfo: true,
 };

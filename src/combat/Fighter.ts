@@ -2,22 +2,19 @@ import Phaser from "phaser";
 import { FighterStateMachine } from "./FighterStateMachine";
 import { FighterView } from "./FighterView";
 import { MoveResolver } from "./MoveResolver";
+import { balance } from "../data/balance";
 import type {
   ActiveHitbox,
   AttackName,
   CharacterConfig,
   ComboState,
+  DebugFighterState,
   FighterId,
   FighterSnapshot,
   HitboxConfig,
   InputState,
   MoveConfig,
 } from "../types";
-
-const GRAVITY = 1900;
-const ARENA_MIN_X = 70;
-const ARENA_MAX_X = 890;
-const MAX_GUARD_PRESSURE = 100;
 
 export class Fighter {
   readonly id: FighterId;
@@ -26,7 +23,7 @@ export class Fighter {
   readonly moves = new MoveResolver();
 
   health: number;
-  energy = 24;
+  energy = balance.initialEnergy;
   facing: 1 | -1;
   vx = 0;
   vy = 0;
@@ -91,7 +88,7 @@ export class Fighter {
 
   reset(): void {
     this.health = this.character.maxHealth;
-    this.energy = 24;
+    this.energy = balance.initialEnergy;
     this.stateMachine.set("idle");
     this.moves.clear();
     this.vx = 0;
@@ -102,6 +99,22 @@ export class Fighter {
     this.combo = { hits: 0, damage: 0, maxHits: 0, maxDamage: 0, timerMs: 0 };
     this.view.container.setPosition(this.spawn.x, this.spawn.y);
     this.render();
+  }
+
+  setDebugPosition(x: number, y = this.groundY): void {
+    this.view.container.setPosition(x, y);
+    this.vx = 0;
+    this.vy = 0;
+    this.render();
+  }
+
+  setDebugVitals(health?: number, energy?: number): void {
+    if (typeof health === "number") {
+      this.health = Phaser.Math.Clamp(health, 0, this.character.maxHealth);
+    }
+    if (typeof energy === "number") {
+      this.energy = Phaser.Math.Clamp(energy, 0, this.character.maxEnergy);
+    }
   }
 
   resetForTraining(x = this.spawn.x): void {
@@ -162,7 +175,7 @@ export class Fighter {
 
     const direction = attacker.x < this.x ? 1 : -1;
     const blocked = this.wouldBlock(attacker);
-    const damage = blocked ? Math.ceil(move.damage * 0.25) : move.damage;
+    const damage = blocked ? Math.ceil(move.damage * balance.blockDamageRatio) : move.damage;
     this.health = Math.max(0, this.health - damage);
 
     if (!this.burstActive) {
@@ -171,17 +184,21 @@ export class Fighter {
 
     if (blocked) {
       this.guardPressure = Phaser.Math.Clamp(
-        this.guardPressure + move.damage * (move.effectKey === "quake" ? 4.2 : 3.1),
+        this.guardPressure +
+          move.damage *
+            (move.effectKey === "quake"
+              ? balance.guardPressureQuakeMultiplier
+              : balance.guardPressureNormalMultiplier),
         0,
-        MAX_GUARD_PRESSURE,
+        balance.guardPressureMax,
       );
       this.vx = direction * move.knockback * 0.34;
-      if (this.guardPressure >= MAX_GUARD_PRESSURE) {
+      if (this.guardPressure >= balance.guardPressureMax) {
         this.guardPressure = 0;
         this.lastGuardBroken = true;
-        this.stateMachine.set("hit", 520);
+        this.stateMachine.set("hit", balance.guardBreakStunMs);
         this.vx = direction * move.knockback * 0.72;
-        this.vy = Math.min(this.vy, -90);
+        this.vy = Math.min(this.vy, balance.guardBreakLift);
       } else {
         this.stateMachine.set("block", move.blockstunMs);
       }
@@ -225,11 +242,33 @@ export class Fighter {
       state: this.state,
       moveName: this.moves.current?.name,
       combo: { ...this.combo },
-      guardPressure: this.guardPressure / MAX_GUARD_PRESSURE,
+      guardPressure: this.guardPressure / balance.guardPressureMax,
       burstActive: this.burstActive,
       burstPercent: this.burstMs / this.character.burst.durationMs,
       x: this.x,
       y: this.y,
+    };
+  }
+
+  debugState(): DebugFighterState {
+    return {
+      id: this.id,
+      state: this.state,
+      moveName: this.moves.current?.name,
+      moveLabel: this.moves.current?.label,
+      movePhase: this.moves.phase,
+      moveElapsedMs: Math.round(this.moves.elapsedMs),
+      moveRemainingMs: Math.round(this.moves.remaining),
+      stateTimerMs: Math.round(this.stateMachine.timerMs),
+      health: this.health,
+      energy: this.energy,
+      guardPressure: Math.round(this.guardPressure),
+      burstMs: Math.round(this.burstMs),
+      comboTimerMs: Math.round(this.combo.timerMs),
+      x: Math.round(this.x),
+      y: Math.round(this.y),
+      vx: Math.round(this.vx),
+      vy: Math.round(this.vy),
     };
   }
 
@@ -248,7 +287,7 @@ export class Fighter {
       this.burstMs = Math.max(0, this.burstMs - deltaMs);
     }
     if (this.state !== "block" && this.guardPressure > 0) {
-      this.guardPressure = Math.max(0, this.guardPressure - deltaMs * 0.018);
+      this.guardPressure = Math.max(0, this.guardPressure - deltaMs * balance.guardPressureDecayPerMs);
     }
 
     if (this.combo.timerMs > 0) {
@@ -300,7 +339,7 @@ export class Fighter {
     }
 
     if (!this.stateMachine.locked && input.down && direction !== 0 && this.isGrounded) {
-      this.stateMachine.set("dash", 170);
+      this.stateMachine.set("dash", balance.dashDurationMs);
       this.vx = direction * this.character.dashSpeed * this.speedMultiplier();
       return;
     }
@@ -313,7 +352,7 @@ export class Fighter {
     }
 
     if (this.state === "dash") {
-      this.vx *= 0.96;
+      this.vx *= balance.dashFriction;
     }
   }
 
@@ -368,13 +407,13 @@ export class Fighter {
 
   private integrate(deltaSeconds: number): void {
     if (!this.isGrounded || this.vy < 0) {
-      this.vy += GRAVITY * deltaSeconds;
+      this.vy += balance.gravity * deltaSeconds;
     }
 
     this.view.container.x = Phaser.Math.Clamp(
       this.view.container.x + this.vx * deltaSeconds,
-      ARENA_MIN_X,
-      ARENA_MAX_X,
+      balance.arenaMinX,
+      balance.arenaMaxX,
     );
     this.view.container.y += this.vy * deltaSeconds;
 
@@ -384,7 +423,7 @@ export class Fighter {
     }
 
     if (this.isGrounded && !this.stateMachine.locked && Math.abs(this.vx) > 0) {
-      this.vx *= 0.84;
+      this.vx *= balance.groundedFriction;
     }
   }
 
@@ -416,7 +455,7 @@ export class Fighter {
     this.combo.damage += damage;
     this.combo.maxHits = Math.max(this.combo.maxHits, this.combo.hits);
     this.combo.maxDamage = Math.max(this.combo.maxDamage, this.combo.damage);
-    this.combo.timerMs = 1500;
+    this.combo.timerMs = balance.comboTimerMs;
   }
 
   private speedMultiplier(): number {

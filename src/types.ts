@@ -17,6 +17,7 @@ export type AttackName = string;
 export type AiDifficulty = "easy" | "normal" | "hard";
 export type MatchMode = "ai" | "versus" | "arcade" | "training";
 export type TrainingDummyMode = "stand" | "block" | "counter";
+export type MovePhase = "none" | "startup" | "active" | "recovery";
 
 export interface HitboxConfig {
   x: number;
@@ -195,6 +196,26 @@ export interface AiDifficultyConfig {
   burstChance: number;
 }
 
+export interface BalanceConfig {
+  gravity: number;
+  arenaMinX: number;
+  arenaMaxX: number;
+  initialEnergy: number;
+  blockDamageRatio: number;
+  guardPressureMax: number;
+  guardPressureDecayPerMs: number;
+  guardPressureNormalMultiplier: number;
+  guardPressureQuakeMultiplier: number;
+  guardBreakStunMs: number;
+  guardBreakLift: number;
+  comboTimerMs: number;
+  dashDurationMs: number;
+  dashFriction: number;
+  groundedFriction: number;
+  trainingP1X: number;
+  trainingP2X: number;
+}
+
 export interface ComboState {
   hits: number;
   damage: number;
@@ -223,7 +244,61 @@ export interface ArcadeProgress {
 export interface TrainingConfig {
   dummyMode: TrainingDummyMode;
   infiniteEnergy: boolean;
+  infiniteHealth: boolean;
+  autoReset: boolean;
+  showHitboxes: boolean;
+  showFrameData: boolean;
+  showInputHistory: boolean;
   showMoveInfo: boolean;
+}
+
+export interface TrainingOptions extends TrainingConfig {
+  debugOverlay: boolean;
+  slowMotionScale: number;
+  paused: boolean;
+}
+
+export interface InputHistoryEntry {
+  timeMs: number;
+  label: string;
+}
+
+export interface FrameStepConfig {
+  paused: boolean;
+  stepQueued: boolean;
+  slowMotionScale: number;
+}
+
+export interface DebugFighterState {
+  id: FighterId;
+  state: FighterState;
+  moveName?: AttackName;
+  moveLabel?: string;
+  movePhase: MovePhase;
+  moveElapsedMs: number;
+  moveRemainingMs: number;
+  stateTimerMs: number;
+  health: number;
+  energy: number;
+  guardPressure: number;
+  burstMs: number;
+  comboTimerMs: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+}
+
+export interface DebugCombatState {
+  mode: MatchMode;
+  roundMs: number;
+  hitStopMs: number;
+  debugOverlay: boolean;
+  showHitboxes: boolean;
+  frameStep: FrameStepConfig;
+  p1: DebugFighterState;
+  p2: DebugFighterState;
+  inputHistory: InputHistoryEntry[];
 }
 
 export interface InputState {

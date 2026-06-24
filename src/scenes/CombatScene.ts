@@ -5,12 +5,15 @@ import { HitboxSystem } from "../combat/HitboxSystem";
 import { ProjectileSystem } from "../combat/ProjectileSystem";
 import { SimpleAIController } from "../combat/SimpleAIController";
 import { getArcadeRun } from "../data/arcade";
+import { balance } from "../data/balance";
 import { getCharacter } from "../data/characters";
 import { getStage } from "../data/stages";
 import { defaultTrainingConfig, trainingModes } from "../data/training";
+import { DebugOverlay } from "../debug/DebugOverlay";
+import { registerCombatScene, unregisterCombatScene, type CombatDebugSetup } from "../debug/combatDebug";
 import { KeyboardController, createEmptyInput } from "../input/InputController";
 import { playerOneKeys, playerTwoKeys } from "../input/keymaps";
-import type { FighterSnapshot, ImpactEffectConfig, InputState, MatchConfig, MatchResult, TrainingConfig } from "../types";
+import type { DebugCombatState, FighterSnapshot, FrameStepConfig, ImpactEffectConfig, InputHistoryEntry, InputState, MatchConfig, MatchResult, TrainingConfig } from "../types";
 import { createBackdrop } from "./MenuScene";
 
 const ROUND_SECONDS = 99;
@@ -49,6 +52,7 @@ export class CombatScene extends Phaser.Scene {
   private modeText!: Phaser.GameObjects.Text;
   private trainingText!: Phaser.GameObjects.Text;
   private trainingPanelText!: Phaser.GameObjects.Text;
+  private debugOverlay?: DebugOverlay;
   private roundBanner!: Phaser.GameObjects.Text;
   private flashOverlay!: Phaser.GameObjects.Rectangle;
   private sfx!: SoundManager;
@@ -58,6 +62,14 @@ export class CombatScene extends Phaser.Scene {
   private hitStopMs = 0;
   private trainingConfig: TrainingConfig = { ...defaultTrainingConfig };
   private lastTrainingEvent = "尚未命中";
+  private readonly inputHistory: InputHistoryEntry[] = [];
+  private previousInputLabel = "";
+  private debugOverlayEnabled = false;
+  private frameStep: FrameStepConfig = {
+    paused: false,
+    stepQueued: false,
+    slowMotionScale: 1,
+  };
 
   constructor() {
     super("CombatScene");
@@ -68,6 +80,9 @@ export class CombatScene extends Phaser.Scene {
     this.trainingConfig = { ...defaultTrainingConfig, ...this.matchConfig.training };
     this.roundMs = ROUND_SECONDS * 1000;
     this.finished = false;
+    this.hitStopMs = 0;
+    this.inputHistory.length = 0;
+    this.previousInputLabel = "";
   }
 
   create(): void {
@@ -90,6 +105,11 @@ export class CombatScene extends Phaser.Scene {
       this.playImpact(effect, impact.x, impact.y, impact.blocked);
       this.lastTrainingEvent = `${effect.label}｜${impact.move.label}｜${impact.blocked ? Math.ceil(impact.move.damage * 0.25) : impact.move.damage} 傷害`;
     });
+    this.debugOverlay = import.meta.env.DEV ? new DebugOverlay(this) : undefined;
+    if (import.meta.env.DEV) {
+      registerCombatScene(this);
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.shutdown());
+    }
 
     this.ui = this.add.graphics().setDepth(30);
     this.timerText = this.add
@@ -146,6 +166,25 @@ export class CombatScene extends Phaser.Scene {
 
     this.input.keyboard?.on("keydown-H", () => {
       this.debugHitboxes = !this.debugHitboxes;
+      this.trainingConfig.showHitboxes = this.debugHitboxes;
+    });
+    this.input.keyboard?.on("keydown-F", () => {
+      this.debugOverlayEnabled = !this.debugOverlayEnabled;
+      this.trainingConfig.showFrameData = this.debugOverlayEnabled || this.trainingConfig.showFrameData;
+    });
+    this.input.keyboard?.on("keydown-G", () => {
+      this.trainingConfig.showInputHistory = !this.trainingConfig.showInputHistory;
+    });
+    this.input.keyboard?.on("keydown-P", () => {
+      this.frameStep.paused = !this.frameStep.paused;
+    });
+    this.input.keyboard?.on("keydown-N", () => {
+      this.frameStep.stepQueued = true;
+      this.frameStep.paused = true;
+    });
+    this.input.keyboard?.on("keydown-M", () => {
+      this.frameStep.slowMotionScale =
+        this.frameStep.slowMotionScale === 1 ? 0.5 : this.frameStep.slowMotionScale === 0.5 ? 0.25 : 1;
     });
     this.input.keyboard?.on("keydown-R", () => this.trainingReset());
     this.input.keyboard?.on("keydown-T", () => this.cycleDummyMode());
@@ -155,29 +194,76 @@ export class CombatScene extends Phaser.Scene {
 
   update(_time: number, deltaMs: number): void {
     if (this.finished) return;
+    if (this.frameStep.paused && !this.frameStep.stepQueued) {
+      this.drawUi(this.p1.snapshot(), this.p2.snapshot());
+      this.debugOverlay?.render(this.debugSnapshot());
+      return;
+    }
+    const effectiveDeltaMs = this.frameStep.stepQueued ? 16 : deltaMs * this.frameStep.slowMotionScale;
+    this.frameStep.stepQueued = false;
 
     if (this.hitStopMs > 0) {
-      this.hitStopMs = Math.max(0, this.hitStopMs - deltaMs);
+      this.hitStopMs = Math.max(0, this.hitStopMs - effectiveDeltaMs);
       this.drawUi(this.p1.snapshot(), this.p2.snapshot());
+      this.debugOverlay?.render(this.debugSnapshot());
       return;
     }
 
     if (this.matchConfig.mode !== "training") {
-      this.roundMs = Math.max(0, this.roundMs - deltaMs);
+      this.roundMs = Math.max(0, this.roundMs - effectiveDeltaMs);
     }
     const p1Input = this.p1Controller.read();
-    const p2Input = this.readP2Input(deltaMs);
+    this.recordInputHistory(p1Input);
+    const p2Input = this.readP2Input(effectiveDeltaMs);
 
-    this.p1.update(p1Input, this.p2, deltaMs);
-    this.p2.update(p2Input, this.p1, deltaMs);
+    this.p1.update(p1Input, this.p2, effectiveDeltaMs);
+    this.p2.update(p2Input, this.p1, effectiveDeltaMs);
     this.applyTrainingRules();
     this.spawnPendingProjectiles();
-    this.projectiles.update(deltaMs, [this.p1, this.p2]);
+    this.projectiles.update(effectiveDeltaMs, [this.p1, this.p2]);
     this.handleHitResult(this.hitboxes.resolve(this.p1, this.p2));
     this.handleHitResult(this.hitboxes.resolve(this.p2, this.p1));
-    this.hitboxes.drawDebug([this.p1, this.p2], this.debugHitboxes);
+    this.hitboxes.drawDebug([this.p1, this.p2], this.debugHitboxes || this.trainingConfig.showHitboxes);
     this.drawUi(this.p1.snapshot(), this.p2.snapshot());
+    this.debugOverlay?.render(this.debugSnapshot());
     this.checkRoundEnd();
+  }
+
+  shutdown(): void {
+    unregisterCombatScene(this);
+    this.debugOverlay?.destroy();
+    this.debugOverlay = undefined;
+  }
+
+  applyDebugSetup(setup: CombatDebugSetup): void {
+    if (typeof setup.p1X === "number") this.p1.setDebugPosition(setup.p1X);
+    if (typeof setup.p2X === "number") this.p2.setDebugPosition(setup.p2X);
+    this.p1.setDebugVitals(setup.p1Health, setup.p1Energy);
+    this.p2.setDebugVitals(setup.p2Health, setup.p2Energy);
+    this.trainingConfig = { ...this.trainingConfig, ...setup.training };
+    if (typeof setup.showHitboxes === "boolean") {
+      this.debugHitboxes = setup.showHitboxes;
+      this.trainingConfig.showHitboxes = setup.showHitboxes;
+    }
+    if (typeof setup.debugOverlay === "boolean") this.debugOverlayEnabled = setup.debugOverlay;
+    if (typeof setup.paused === "boolean") this.frameStep.paused = setup.paused;
+    if (typeof setup.slowMotionScale === "number") this.frameStep.slowMotionScale = setup.slowMotionScale;
+    this.drawUi(this.p1.snapshot(), this.p2.snapshot());
+    this.debugOverlay?.render(this.debugSnapshot());
+  }
+
+  debugSnapshot(): DebugCombatState {
+    return {
+      mode: this.matchConfig.mode,
+      roundMs: Math.round(this.roundMs),
+      hitStopMs: Math.round(this.hitStopMs),
+      debugOverlay: this.debugOverlayEnabled,
+      showHitboxes: this.debugHitboxes || this.trainingConfig.showHitboxes,
+      frameStep: { ...this.frameStep },
+      p1: this.p1.debugState(),
+      p2: this.p2.debugState(),
+      inputHistory: [...this.inputHistory],
+    };
   }
 
   private readP2Input(deltaMs: number): InputState {
@@ -341,7 +427,11 @@ export class CombatScene extends Phaser.Scene {
       this.p1.refillEnergy();
       this.p2.refillEnergy();
     }
-    if (this.p1.isDefeated || this.p2.isDefeated) {
+    if (this.trainingConfig.infiniteHealth) {
+      this.p1.setDebugVitals(this.p1.character.maxHealth);
+      this.p2.setDebugVitals(this.p2.character.maxHealth);
+    }
+    if (this.trainingConfig.autoReset && (this.p1.isDefeated || this.p2.isDefeated)) {
       this.trainingReset();
     }
   }
@@ -349,8 +439,8 @@ export class CombatScene extends Phaser.Scene {
   private trainingReset(): void {
     if (this.matchConfig.mode !== "training") return;
     this.projectiles?.clear();
-    this.p1.resetForTraining(250);
-    this.p2.resetForTraining(710);
+    this.p1.resetForTraining(balance.trainingP1X);
+    this.p2.resetForTraining(balance.trainingP2X);
     this.p1.refillEnergy();
     this.p2.refillEnergy();
     this.lastTrainingEvent = "重置完成";
@@ -483,9 +573,49 @@ export class CombatScene extends Phaser.Scene {
   }
 
   private trainingPanel(snapshot: FighterSnapshot): string {
-    const chain = "取消：輕擊 > 中擊 > 重擊 > 必殺";
-    const combo = `連段：${snapshot.combo.hits}  目前傷害 ${snapshot.combo.damage}  最高 ${snapshot.combo.maxHits}`;
-    return `${this.lastTrainingEvent}\n${combo}\n${chain}`;
+    const lines = [this.lastTrainingEvent];
+    const move = snapshot.moveName ? this.p1.character.moves[snapshot.moveName] : undefined;
+    lines.push(`連段：${snapshot.combo.hits}  目前傷害 ${snapshot.combo.damage}  最高 ${snapshot.combo.maxHits}`);
+    if (this.trainingConfig.showFrameData && move) {
+      lines.push(`幀資料：啟動 ${move.startupMs}  有效 ${move.activeMs}  收招 ${move.recoveryMs}`);
+      lines.push(`硬直：命中 ${move.hitstunMs}  格擋 ${move.blockstunMs}  階段 ${this.p1.debugState().movePhase}`);
+    }
+    if (this.trainingConfig.showMoveInfo) {
+      lines.push(`取消：${move?.cancelInto?.join(" > ") || "輕擊 > 中擊 > 重擊 > 必殺"}`);
+    }
+    if (this.trainingConfig.showInputHistory) {
+      lines.push(`輸入：${this.inputHistory.map((entry) => entry.label).slice(-6).join("  ") || "無"}`);
+    }
+    lines.push(`工具：H框 F狀態 G輸入 P暫停 N單幀 M慢速 x${this.frameStep.slowMotionScale}`);
+    return lines.join("\n");
+  }
+
+  private recordInputHistory(input: InputState): void {
+    const label = this.inputLabel(input);
+    if (!label || label === this.previousInputLabel) {
+      this.previousInputLabel = label;
+      return;
+    }
+    this.previousInputLabel = label;
+    this.inputHistory.push({ timeMs: this.time.now, label });
+    if (this.inputHistory.length > 12) {
+      this.inputHistory.shift();
+    }
+  }
+
+  private inputLabel(input: InputState): string {
+    const parts: string[] = [];
+    if (input.left) parts.push("←");
+    if (input.right) parts.push("→");
+    if (input.up) parts.push("↑");
+    if (input.down) parts.push("↓");
+    if (input.block) parts.push("擋");
+    if (input.light) parts.push("輕");
+    if (input.medium) parts.push("中");
+    if (input.heavy) parts.push("重");
+    if (input.special) parts.push("必");
+    if (input.burst) parts.push("爆");
+    return parts.join("+");
   }
 
   private trainingModeLabel(): string {

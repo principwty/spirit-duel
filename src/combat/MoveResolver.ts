@@ -1,4 +1,4 @@
-import type { AttackName, MoveConfig } from "../types";
+import type { AttackName, MoveConfig, MovePhase } from "../types";
 
 export class MoveResolver {
   current?: MoveConfig;
@@ -49,6 +49,17 @@ export class MoveResolver {
         !this.projectileSpawned &&
         this.elapsedMs >= this.current.startupMs,
     );
+  }
+
+  get remaining(): number {
+    return this.remainingMs;
+  }
+
+  get phase(): MovePhase {
+    if (!this.current) return "none";
+    if (this.elapsedMs < this.current.startupMs) return "startup";
+    if (this.active) return "active";
+    return "recovery";
   }
 
   canCancelInto(next: AttackName, burstActive: boolean): boolean {
